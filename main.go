@@ -64,7 +64,6 @@ func (e *EditorConfig) PositionCursor() {
 	e.WriteString(fmt.Sprintf("\x1b[%d;%dH", e.Cy+1, e.Cx+1))
 }
 
-
 func (e *EditorConfig) RefreshScreen() {
 	e.WriteString(HideCursor)
 	e.WriteString("\x1b[H")
@@ -95,8 +94,15 @@ func (e *EditorConfig) RefreshScreen() {
 }
 
 func (e *EditorConfig) MoveCursor(x, y int) {
-	e.Cx += x
-	e.Cy += y
+	newCx := e.Cx + x
+	if (newCx >= 0 && newCx < e.Cols) {
+		e.Cx = newCx
+	}
+
+	newCy := e.Cy + y
+	if (newCy >= 0 && newCy < e.Rows) {
+		e.Cy = newCy
+	}
 
 	e.PositionCursor()
 }
