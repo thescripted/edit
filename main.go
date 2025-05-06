@@ -64,6 +64,7 @@ func (e *EditorConfig) PositionCursor() {
 	e.WriteString(fmt.Sprintf("\x1b[%d;%dH", e.Cy+1, e.Cx+1))
 }
 
+
 func (e *EditorConfig) RefreshScreen() {
 	e.WriteString(HideCursor)
 	e.WriteString("\x1b[H")
@@ -91,6 +92,13 @@ func (e *EditorConfig) RefreshScreen() {
 
 	e.PositionCursor()
 	e.WriteString(ShowCursor)
+}
+
+func (e *EditorConfig) MoveCursor(x, y int) {
+	e.Cx += x
+	e.Cy += y
+
+	e.PositionCursor()
 }
 
 func main() {
@@ -130,8 +138,18 @@ func main() {
 		if err != nil {
 			log.Fatalf("error reading byte: %v", err)
 		}
-		if byte == ctrl('q') {
-			break
+
+		switch byte {
+		case 'h':
+			editor.MoveCursor(-1, 0)
+		case 'j':
+			editor.MoveCursor(0, 1)
+		case 'k':
+			editor.MoveCursor(0, -1)
+		case 'l':
+			editor.MoveCursor(1, 0)
+		case ctrl('q'):
+			return // probably okay since there's no post-process, for now...
 		}
 	}
 }
