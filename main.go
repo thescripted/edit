@@ -2,12 +2,13 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"os"
-	"unicode"
 
 	"golang.org/x/term"
 )
+
+const ClearScreen = "\x1b[2J"
+const CursorPosition = "\x1b[H"
 
 func main() {
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
@@ -16,30 +17,47 @@ func main() {
 	}
 
 	defer func() {
+		// Restore the terminal state on exit
+		os.Stdout.WriteString(ClearScreen)
+		os.Stdout.WriteString(CursorPosition)
+
 		if err := term.Restore(int(os.Stdin.Fd()), oldState); err != nil {
 			panic(err)
 		}
 	}()
 
 	buf := bufio.NewReader(os.Stdin)
-	s, err := term.GetState(int(os.Stdin.Fd()))
-	if err != nil {
+	if _, err = term.GetState(int(os.Stdin.Fd())); err != nil {
 		panic(err)
 	}
-	fmt.Printf("%#v\r\n", s)
 
 	for {
-		rune, _, err := buf.ReadRune()
+		refreshScreen()
+
+		byte, err := buf.ReadByte()
 		if err != nil {
 			panic(err)
 		}
-		if rune == 'q' {
+		if byte == ctrl('q') {
 			break
 		}
-		if unicode.IsControl(rune) {
-			fmt.Printf("%d\r\n", rune)
-		} else {
-			fmt.Printf("%d ('%c')\r\n", rune, rune)
-		}
 	}
+}
+
+// ctrl returns the control + character for the given byte.
+func ctrl(c byte) byte {
+	return c & 0x1F
+}
+
+func refreshScreen() {
+	os.Stdout.WriteString(ClearScreen)
+	os.Stdout.WriteString(CursorPosition)
+
+	// Draw `~` for each row
+	for range 24 {
+		os.Stdout.WriteString("~")
+		os.Stdout.WriteString("\r\n")
+	}
+
+	os.Stdout.WriteString(CursorPosition)
 }
