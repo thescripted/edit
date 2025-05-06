@@ -8,17 +8,22 @@ import (
 	"golang.org/x/term"
 )
 
-const ClearScreen = "\x1b[2J"
-const EraseInLine = "\x1b[K"
-const CursorPosition = "\x1b[H"
-const HideCursor = "\x1b[?25l"
-const ShowCursor = "\x1b[?25h"
+const (
+	// Escape Sequences
+	ClearScreen    = "\x1b[2J"
+	EraseInLine    = "\x1b[K"
+	CursorPosition = "\x1b[H"
+	HideCursor     = "\x1b[?25l"
+	ShowCursor     = "\x1b[?25h"
+)
+
+const Version = "Edit -- Version 0.0.1"
 
 type EditorConfig struct {
 	termios *term.State
-	Rows	int
-	Cols	int
-	writer *bufio.Writer
+	Rows    int
+	Cols    int
+	writer  *bufio.Writer
 }
 
 func (e *EditorConfig) WriteBytes(b []byte) error {
@@ -38,7 +43,7 @@ func (e *EditorConfig) WriteString(s string) error {
 }
 
 func NewEditorConfig() (*EditorConfig, error) {
-	w,h, err := term.GetSize(int(os.Stdin.Fd()))
+	w, h, err := term.GetSize(int(os.Stdin.Fd()))
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +52,7 @@ func NewEditorConfig() (*EditorConfig, error) {
 		termios: nil,
 		Rows:    h,
 		Cols:    w,
-		writer: bufio.NewWriter(os.Stdout),
+		writer:  bufio.NewWriter(os.Stdout),
 	}, nil
 }
 
@@ -57,7 +62,12 @@ func (e *EditorConfig) RefreshScreen() {
 
 	// Draw `~` for each row
 	for i := range e.Rows {
-		e.WriteString("~")
+		// Display Home Screen
+		if i == e.Rows/3 {
+			e.WriteString(Version)
+		} else {
+			e.WriteString("~")
+		}
 		e.WriteString(EraseInLine)
 
 		if i < e.Rows-1 {
@@ -80,7 +90,7 @@ func main() {
 		log.Fatalf("error creating editor config: %v", err)
 	}
 
-	defer func() { // TODO: editor.Restore() ?? 
+	defer func() { // TODO: editor.Restore() ??
 		// Restore the terminal state on exit
 		os.Stdout.WriteString(ClearScreen)
 		os.Stdout.WriteString(CursorPosition)
@@ -112,4 +122,3 @@ func main() {
 func ctrl(c byte) byte {
 	return c & 0x1F
 }
-
