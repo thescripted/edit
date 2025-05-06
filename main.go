@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"log"
 	"os"
+	"strings"
 
 	"golang.org/x/term"
 )
@@ -64,6 +65,12 @@ func (e *EditorConfig) RefreshScreen() {
 	for i := range e.Rows {
 		// Display Home Screen
 		if i == e.Rows/3 {
+			padding := (e.Cols - len(Version)) / 2
+			if padding > 0 {
+				e.WriteString("~")
+				padding -= 1
+				e.WriteString(strings.Repeat(" ", padding))
+			}
 			e.WriteString(Version)
 		} else {
 			e.WriteString("~")
