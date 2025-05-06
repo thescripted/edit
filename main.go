@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -11,11 +12,11 @@ import (
 
 const (
 	// Escape Sequences
-	ClearScreen    = "\x1b[2J"
-	EraseInLine    = "\x1b[K"
-	CursorPosition = "\x1b[H"
-	HideCursor     = "\x1b[?25l"
-	ShowCursor     = "\x1b[?25h"
+	ClearScreen = "\x1b[2J"
+	EraseInline = "\x1b[K"
+	// CursorPosition = "\x1b[%d;%dH" // TODO: this needs dynamic args
+	HideCursor = "\x1b[?25l"
+	ShowCursor = "\x1b[?25h"
 )
 
 const Version = "Edit -- Version 0.0.1"
@@ -25,6 +26,8 @@ type EditorConfig struct {
 	Rows    int
 	Cols    int
 	writer  *bufio.Writer
+	Cx      int
+	Cy      int
 }
 
 func (e *EditorConfig) WriteBytes(b []byte) error {
@@ -57,11 +60,15 @@ func NewEditorConfig() (*EditorConfig, error) {
 	}, nil
 }
 
+func (e *EditorConfig) PositionCursor() {
+	e.WriteString(fmt.Sprintf("\x1b[%d;%dH", e.Cy+1, e.Cx+1))
+}
+
 func (e *EditorConfig) RefreshScreen() {
 	e.WriteString(HideCursor)
-	e.WriteString(CursorPosition)
+	e.WriteString("\x1b[H")
 
-	// Draw `~` for each row
+	// Draw Rows
 	for i := range e.Rows {
 		// Display Home Screen
 		if i == e.Rows/3 {
@@ -75,14 +82,14 @@ func (e *EditorConfig) RefreshScreen() {
 		} else {
 			e.WriteString("~")
 		}
-		e.WriteString(EraseInLine)
+		e.WriteString(EraseInline)
 
 		if i < e.Rows-1 {
 			e.WriteString("\r\n")
 		}
 	}
 
-	e.WriteString(CursorPosition)
+	e.PositionCursor()
 	e.WriteString(ShowCursor)
 }
 
@@ -97,14 +104,18 @@ func main() {
 		log.Fatalf("error creating editor config: %v", err)
 	}
 
+	// Restore the terminal state on exit
 	defer func() { // TODO: editor.Restore() ??
-		// Restore the terminal state on exit
 		os.Stdout.WriteString(ClearScreen)
-		os.Stdout.WriteString(CursorPosition)
+		os.Stdout.WriteString("\x1b[H")
 
 		if err := term.Restore(int(os.Stdin.Fd()), oldState); err != nil {
 			log.Fatalf("error restoring terminal: %v", err)
 		}
+
+		// debug
+		fmt.Printf("%#v\n", editor)
+		fmt.Println("Exited")
 	}()
 
 	buf := bufio.NewReader(os.Stdin)
