@@ -9,12 +9,32 @@ import (
 )
 
 const ClearScreen = "\x1b[2J"
+const EraseInLine = "\x1b[K"
 const CursorPosition = "\x1b[H"
+const HideCursor = "\x1b[?25l"
+const ShowCursor = "\x1b[?25h"
 
 type EditorConfig struct {
 	termios *term.State
 	Rows	int
 	Cols	int
+	writer *bufio.Writer
+}
+
+func (e *EditorConfig) WriteBytes(b []byte) error {
+	_, err := e.writer.Write(b)
+	if err != nil {
+		return err
+	}
+	return e.writer.Flush()
+}
+
+func (e *EditorConfig) WriteString(s string) error {
+	_, err := e.writer.WriteString(s)
+	if err != nil {
+		return err
+	}
+	return e.writer.Flush()
 }
 
 func NewEditorConfig() (*EditorConfig, error) {
@@ -27,20 +47,26 @@ func NewEditorConfig() (*EditorConfig, error) {
 		termios: nil,
 		Rows:    h,
 		Cols:    w,
+		writer: bufio.NewWriter(os.Stdout),
 	}, nil
 }
 
 func (e *EditorConfig) RefreshScreen() {
-	os.Stdout.WriteString(ClearScreen)
-	os.Stdout.WriteString(CursorPosition)
+	e.WriteString(HideCursor)
+	e.WriteString(CursorPosition)
 
 	// Draw `~` for each row
-	for i := 0; i < e.Rows; i++ {
-		os.Stdout.WriteString("~")
-		os.Stdout.WriteString("\r\n")
+	for i := range e.Rows {
+		e.WriteString("~")
+		e.WriteString(EraseInLine)
+
+		if i < e.Rows-1 {
+			e.WriteString("\r\n")
+		}
 	}
 
-	os.Stdout.WriteString(CursorPosition)
+	e.WriteString(CursorPosition)
+	e.WriteString(ShowCursor)
 }
 
 func main() {
@@ -86,3 +112,4 @@ func main() {
 func ctrl(c byte) byte {
 	return c & 0x1F
 }
+
