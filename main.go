@@ -15,12 +15,18 @@ func main() {
 		panic(err)
 	}
 
+	defer func() {
+		if err := term.Restore(int(os.Stdin.Fd()), oldState); err != nil {
+			panic(err)
+		}
+	}()
+
 	buf := bufio.NewReader(os.Stdin)
 	s, err := term.GetState(int(os.Stdin.Fd()))
 	if err != nil {
 		panic(err)
 	}
-	fmt.Print(s, "\r\n")
+	fmt.Printf("%#v\r\n", s)
 
 	for {
 		rune, _, err := buf.ReadRune()
@@ -36,5 +42,4 @@ func main() {
 			fmt.Printf("%d ('%c')\r\n", rune, rune)
 		}
 	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
 }
