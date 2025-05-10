@@ -26,8 +26,9 @@ type EditorConfig struct {
 	Rows    int
 	Cols    int
 	writer  *bufio.Writer
-	Cx      int
-	Cy      int
+	Cx      int // Cursor X position
+	Cy      int // Cursor Y position
+	Loaded  bool // File loaded
 }
 
 func (e *EditorConfig) WriteBytes(b []byte) error {
@@ -57,6 +58,7 @@ func NewEditorConfig() (*EditorConfig, error) {
 		Rows:    h,
 		Cols:    w,
 		writer:  bufio.NewWriter(os.Stdout),
+		Loaded: false,
 	}, nil
 }
 
@@ -70,6 +72,10 @@ func (e *EditorConfig) RefreshScreen() {
 
 	// Draw Rows
 	for i := range e.Rows {
+		// Display Debug Info
+		if i == 0 {
+			e.WriteString(fmt.Sprintf("Rows: %d, Cols: %d, Cx: %d, Cy: %d", e.Rows, e.Cols, e.Cx, e.Cy))
+		}
 		// Display Home Screen
 		if i == e.Rows/3 {
 			padding := (e.Cols - len(Version)) / 2
@@ -93,21 +99,43 @@ func (e *EditorConfig) RefreshScreen() {
 	e.WriteString(ShowCursor)
 }
 
-func (e *EditorConfig) MoveCursor(x, y int) {
-	newCx := e.Cx + x
-	if (newCx >= 0 && newCx < e.Cols) {
-		e.Cx = newCx
+// RelativeMoveCursor moves the cursor relative to its current position.
+// If the new position is out of bounds, it will move to the edge. It will not wrap, it will not fail.
+// TODO(Ben): add "ok" flag to indiciate if the cursor attempted to move out of bounds.
+func (e *EditorConfig) RelativeMoveCursor(x, y int) {
+	if x < 0 {
+		e.Cx = max(e.Cx+x, 0)
+	} else {
+		e.Cx = min(e.Cx+x, e.Cols-1)
 	}
 
-	newCy := e.Cy + y
-	if (newCy >= 0 && newCy < e.Rows) {
-		e.Cy = newCy
+	if y < 0 {
+		e.Cy = max(e.Cy+y, 0)
+	} else {
+		e.Cy = min(e.Cy+y, e.Rows-1)
 	}
 
 	e.PositionCursor()
 }
 
+func (e *EditorConfig) AbsoluteMoveCursor(x, y int) {
+	e.Cx = x
+	e.Cy = y
+
+	e.PositionCursor()
+}
+
 func main() {
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: edit <file>")
+		fmt.Println("Version:", Version)
+		fmt.Println("Edit is a simple text editor.")
+		fmt.Println("Press Ctrl-Q to exit.")
+		os.Exit(1)
+	}
+	filePath := os.Args[1]
+	fmt.Println("File Path:", filePath)
+
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		log.Fatalf("error making raw terminal: %v", err)
@@ -137,8 +165,60 @@ func main() {
 		log.Fatalf("error getting terminal state: %v", err)
 	}
 
+	// TODO(ben): this can be more efficient
+	file, err := os.Open(filePath)
+	if err != nil {
+		log.Fatalf("error opening file: %v", err)
+	}
+	scanner := bufio.NewScanner(file)
+
 	for {
-		editor.RefreshScreen()
+		// Draw the Screen
+		editor.WriteString(HideCursor)
+		editor.WriteString("\x1b[H")
+
+		// Draw Rows
+		if file == nil {
+			for i := range editor.Rows {
+				// Display Home Screen
+				if i == editor.Rows/3 {
+					padding := (editor.Cols - len(Version)) / 2
+					if padding > 0 {
+						editor.WriteString("~")
+						padding -= 1
+						editor.WriteString(strings.Repeat(" ", padding))
+					}
+					editor.WriteString(Version)
+				} else {
+					editor.WriteString("~")
+				}
+				editor.WriteString(EraseInline)
+
+				if i < editor.Rows-1 {
+					editor.WriteString("\r\n")
+				}
+			}
+		}
+
+		// if there is a file, read it
+		if file != nil && !editor.Loaded {
+			for i := range editor.Rows {
+				editor.WriteString("~")
+				editor.WriteString(EraseInline)
+				if scanner.Scan() {
+					line := scanner.Text()
+					editor.WriteString(line)
+				}
+				if i < editor.Rows-1 {
+					editor.WriteString("\r\n")
+				}
+			}
+			editor.Loaded = true
+		}
+
+
+		editor.PositionCursor()
+		editor.WriteString(ShowCursor)
 
 		byte, err := buf.ReadByte()
 		if err != nil {
@@ -147,13 +227,18 @@ func main() {
 
 		switch byte {
 		case 'h':
-			editor.MoveCursor(-1, 0)
+			editor.RelativeMoveCursor(-1, 0)
 		case 'j':
-			editor.MoveCursor(0, 1)
+			editor.RelativeMoveCursor(0, 1)
 		case 'k':
-			editor.MoveCursor(0, -1)
+			editor.RelativeMoveCursor(0, -1)
 		case 'l':
-			editor.MoveCursor(1, 0)
+			editor.RelativeMoveCursor(1, 0)
+		case ctrl('u'):
+			editor.RelativeMoveCursor(0, -editor.Rows/2)
+		case ctrl('d'):
+			editor.RelativeMoveCursor(0, editor.Rows/2)
+
 		case ctrl('q'):
 			return // probably okay since there's no post-process, for now...
 		}
