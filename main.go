@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -22,13 +23,18 @@ const (
 const Version = "Edit -- Version 0.0.1"
 
 type EditorConfig struct {
-	termios *term.State
-	Rows    int
-	Cols    int
-	writer  *bufio.Writer
-	Cx      int // Cursor X position
-	Cy      int // Cursor Y position
-	Loaded  bool // File loaded
+	termios       *term.State
+	Rows          int
+	Cols          int
+	writer        *bufio.Writer
+	Cx            int  // Cursor X position
+	Cy            int  // Cursor Y position
+	Loaded        bool // File loaded
+	Content       []string
+	ContentStart   int // Scroll Y position
+	ContentEnd     int
+	ViewStart     int // View Y position
+	ViewEnd       int // View Y position
 }
 
 func (e *EditorConfig) WriteBytes(b []byte) error {
@@ -47,10 +53,17 @@ func (e *EditorConfig) WriteString(s string) error {
 	return e.writer.Flush()
 }
 
-func NewEditorConfig() (*EditorConfig, error) {
+func NewEditorConfig(r io.Reader) (*EditorConfig, error) {
 	w, h, err := term.GetSize(int(os.Stdin.Fd()))
 	if err != nil {
 		return nil, err
+	}
+	scanner := bufio.NewScanner(r)
+	// Write the file content to the editorConfig
+	content := []string{}
+	for scanner.Scan() {
+		line := scanner.Text()
+		content = append(content, line)
 	}
 
 	return &EditorConfig{
@@ -58,8 +71,19 @@ func NewEditorConfig() (*EditorConfig, error) {
 		Rows:    h,
 		Cols:    w,
 		writer:  bufio.NewWriter(os.Stdout),
-		Loaded: false,
+		Loaded:  false,
+		Content: content,
+		ViewEnd: h,
+		ContentEnd: len(content),
 	}, nil
+}
+
+func (e *EditorConfig) UpdateViewPort() {
+	if e.Cy > e.ViewEnd {
+		diff := e.Cy - e.ViewEnd
+		e.ViewStart += diff
+		e.ViewEnd += diff
+	}
 }
 
 func (e *EditorConfig) PositionCursor() {
@@ -71,13 +95,9 @@ func (e *EditorConfig) RefreshScreen() {
 	e.WriteString("\x1b[H")
 
 	// Draw Rows
-	for i := range e.Rows {
-		// Display Debug Info
-		if i == 0 {
-			e.WriteString(fmt.Sprintf("Rows: %d, Cols: %d, Cx: %d, Cy: %d", e.Rows, e.Cols, e.Cx, e.Cy))
-		}
+	for i := e.ViewStart; i < e.Rows; i++ {
 		// Display Home Screen
-		if i == e.Rows/3 {
+		if i == e.Rows/3 && len(e.Content) == 0 {
 			padding := (e.Cols - len(Version)) / 2
 			if padding > 0 {
 				e.WriteString("~")
@@ -89,6 +109,7 @@ func (e *EditorConfig) RefreshScreen() {
 			e.WriteString("~")
 		}
 		e.WriteString(EraseInline)
+		e.WriteString(e.Content[i])
 
 		if i < e.Rows-1 {
 			e.WriteString("\r\n")
@@ -110,11 +131,12 @@ func (e *EditorConfig) RelativeMoveCursor(x, y int) {
 	}
 
 	if y < 0 {
-		e.Cy = max(e.Cy+y, 0)
+		e.Cy = max(e.Cy+y, e.ContentStart)
 	} else {
-		e.Cy = min(e.Cy+y, e.Rows-1)
+		e.Cy = min(e.Cy+y, e.ContentEnd-1)
 	}
 
+	e.UpdateViewPort()
 	e.PositionCursor()
 }
 
@@ -141,7 +163,12 @@ func main() {
 		log.Fatalf("error making raw terminal: %v", err)
 	}
 
-	editor, err := NewEditorConfig()
+	// TODO(ben): this can be more efficient
+	file, err := os.Open(filePath)
+	if err != nil {
+		log.Fatalf("error opening file: %v", err)
+	}
+	editor, err := NewEditorConfig(file)
 	if err != nil {
 		log.Fatalf("error creating editor config: %v", err)
 	}
@@ -154,10 +181,6 @@ func main() {
 		if err := term.Restore(int(os.Stdin.Fd()), oldState); err != nil {
 			log.Fatalf("error restoring terminal: %v", err)
 		}
-
-		// debug
-		fmt.Printf("%#v\n", editor)
-		fmt.Println("Exited")
 	}()
 
 	buf := bufio.NewReader(os.Stdin)
@@ -165,57 +188,32 @@ func main() {
 		log.Fatalf("error getting terminal state: %v", err)
 	}
 
-	// TODO(ben): this can be more efficient
-	file, err := os.Open(filePath)
-	if err != nil {
-		log.Fatalf("error opening file: %v", err)
-	}
-	scanner := bufio.NewScanner(file)
 
 	for {
 		// Draw the Screen
 		editor.WriteString(HideCursor)
 		editor.WriteString("\x1b[H")
 
-		// Draw Rows
-		if file == nil {
-			for i := range editor.Rows {
-				// Display Home Screen
-				if i == editor.Rows/3 {
-					padding := (editor.Cols - len(Version)) / 2
-					if padding > 0 {
-						editor.WriteString("~")
-						padding -= 1
-						editor.WriteString(strings.Repeat(" ", padding))
-					}
-					editor.WriteString(Version)
-				} else {
+		for i := editor.ViewStart; i < editor.ViewEnd; i++ {
+			// Display Home Screen
+			if i == editor.Rows/3 && len(editor.Content) == 0 {
+				padding := (editor.Cols - len(Version)) / 2
+				if padding > 0 {
 					editor.WriteString("~")
+					padding -= 1
+					editor.WriteString(strings.Repeat(" ", padding))
 				}
-				editor.WriteString(EraseInline)
-
-				if i < editor.Rows-1 {
-					editor.WriteString("\r\n")
-				}
-			}
-		}
-
-		// if there is a file, read it
-		if file != nil && !editor.Loaded {
-			for i := range editor.Rows {
+				editor.WriteString(Version)
+			} else {
 				editor.WriteString("~")
-				editor.WriteString(EraseInline)
-				if scanner.Scan() {
-					line := scanner.Text()
-					editor.WriteString(line)
-				}
-				if i < editor.Rows-1 {
-					editor.WriteString("\r\n")
-				}
 			}
-			editor.Loaded = true
-		}
+			editor.WriteString(editor.Content[i])
+			editor.WriteString(EraseInline)
 
+			if i < editor.Rows-1 {
+				editor.WriteString("\r\n")
+			}
+		}
 
 		editor.PositionCursor()
 		editor.WriteString(ShowCursor)
