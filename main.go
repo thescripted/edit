@@ -23,18 +23,19 @@ const (
 const Version = "Edit -- Version 0.0.1"
 
 type EditorConfig struct {
-	termios       *term.State
-	Rows          int
-	Cols          int
-	writer        *bufio.Writer
-	Cx            int  // Cursor X position
-	Cy            int  // Cursor Y position
-	Loaded        bool // File loaded
-	Content       []string
-	ContentStart   int // Scroll Y position
-	ContentEnd     int
-	ViewStart     int // View Y position
-	ViewEnd       int // View Y position
+	termios      *term.State
+	Rows         int
+	Cols         int
+	writer       *bufio.Writer
+	AbsCx        int
+	AbsCy        int
+	RelCx        int
+	RelCy        int
+	Ready        bool
+	Content      []string
+	ContentWidth int
+	ViewStart    int
+	ViewEnd      int
 }
 
 func (e *EditorConfig) WriteBytes(b []byte) error {
@@ -46,7 +47,8 @@ func (e *EditorConfig) WriteBytes(b []byte) error {
 }
 
 func (e *EditorConfig) WriteString(s string) error {
-	_, err := e.writer.WriteString(s)
+	stringIntoFrame := s[:min(len(s), e.Cols-2)]
+	_, err := e.writer.WriteString(stringIntoFrame)
 	if err != nil {
 		return err
 	}
@@ -67,27 +69,33 @@ func NewEditorConfig(r io.Reader) (*EditorConfig, error) {
 	}
 
 	return &EditorConfig{
-		termios: nil,
-		Rows:    h,
-		Cols:    w,
-		writer:  bufio.NewWriter(os.Stdout),
-		Loaded:  false,
-		Content: content,
-		ViewEnd: h,
-		ContentEnd: len(content),
+		termios:      nil,
+		Rows:         h,
+		Cols:         w,
+		AbsCx:        2,
+		RelCx:        2,
+		writer:       bufio.NewWriter(os.Stdout),
+		Ready:        false,
+		Content:      content,
+		ViewEnd:      h,
+		ContentWidth: len(content),
 	}, nil
 }
 
 func (e *EditorConfig) UpdateViewPort() {
-	if e.Cy > e.ViewEnd {
-		diff := e.Cy - e.ViewEnd
-		e.ViewStart += diff
-		e.ViewEnd += diff
+	diff := 0
+	if e.AbsCy >= e.ViewEnd {
+		diff = e.AbsCy - e.ViewEnd
 	}
+	if e.AbsCy < e.ViewStart {
+		diff = e.AbsCy - e.ViewStart
+	}
+	e.ViewStart += diff
+	e.ViewEnd += diff
 }
 
 func (e *EditorConfig) PositionCursor() {
-	e.WriteString(fmt.Sprintf("\x1b[%d;%dH", e.Cy+1, e.Cx+1))
+	e.WriteString(fmt.Sprintf("\x1b[%d;%dH", e.RelCy+1, e.RelCx+1))
 }
 
 func (e *EditorConfig) RefreshScreen() {
@@ -125,15 +133,19 @@ func (e *EditorConfig) RefreshScreen() {
 // TODO(Ben): add "ok" flag to indiciate if the cursor attempted to move out of bounds.
 func (e *EditorConfig) RelativeMoveCursor(x, y int) {
 	if x < 0 {
-		e.Cx = max(e.Cx+x, 0)
+		e.AbsCx = max(e.AbsCx+x, 2)
+		e.RelCx = max(e.RelCx+x, 2)
 	} else {
-		e.Cx = min(e.Cx+x, e.Cols-1)
+		e.AbsCx = min(e.AbsCx+x, e.Cols-1)
+		e.RelCx = min(e.RelCx+x, e.Cols-1)
 	}
 
 	if y < 0 {
-		e.Cy = max(e.Cy+y, e.ContentStart)
+		e.AbsCy = max(e.AbsCy+y, 0)
+		e.RelCy = max(e.RelCy+y, 0)
 	} else {
-		e.Cy = min(e.Cy+y, e.ContentEnd-1)
+		e.AbsCy = min(e.AbsCy+y, e.ContentWidth-1)
+		e.RelCy = min(e.RelCy+y, e.Rows-1) // This is basically our Screen size.
 	}
 
 	e.UpdateViewPort()
@@ -141,8 +153,8 @@ func (e *EditorConfig) RelativeMoveCursor(x, y int) {
 }
 
 func (e *EditorConfig) AbsoluteMoveCursor(x, y int) {
-	e.Cx = x
-	e.Cy = y
+	e.AbsCx = x
+	e.AbsCy = y
 
 	e.PositionCursor()
 }
@@ -188,7 +200,6 @@ func main() {
 		log.Fatalf("error getting terminal state: %v", err)
 	}
 
-
 	for {
 		// Draw the Screen
 		editor.WriteString(HideCursor)
@@ -205,12 +216,12 @@ func main() {
 				}
 				editor.WriteString(Version)
 			} else {
-				editor.WriteString("~")
+				editor.WriteString("~ ") // add a space
 			}
-			editor.WriteString(editor.Content[i])
 			editor.WriteString(EraseInline)
+			editor.WriteString(editor.Content[i])
 
-			if i < editor.Rows-1 {
+			if i < editor.ViewEnd-1 {
 				editor.WriteString("\r\n")
 			}
 		}
@@ -240,6 +251,7 @@ func main() {
 		case ctrl('q'):
 			return // probably okay since there's no post-process, for now...
 		}
+
 	}
 }
 
