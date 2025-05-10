@@ -20,7 +20,10 @@ const (
 	ShowCursor = "\x1b[?25h"
 )
 
-const Version = "Edit -- Version 0.0.1"
+const (
+	Version = "Edit -- Version 0.0.1"
+	OffsetX = 2
+)
 
 type EditorConfig struct {
 	termios      *term.State
@@ -47,7 +50,7 @@ func (e *EditorConfig) WriteBytes(b []byte) error {
 }
 
 func (e *EditorConfig) WriteString(s string) error {
-	stringIntoFrame := s[:min(len(s), e.Cols-2)]
+	stringIntoFrame := s[:min(len(s), e.Cols-OffsetX)]
 	_, err := e.writer.WriteString(stringIntoFrame)
 	if err != nil {
 		return err
@@ -72,8 +75,8 @@ func NewEditorConfig(r io.Reader) (*EditorConfig, error) {
 		termios:      nil,
 		Rows:         h,
 		Cols:         w,
-		AbsCx:        2,
-		RelCx:        2,
+		AbsCx:        OffsetX,
+		RelCx:        OffsetX,
 		writer:       bufio.NewWriter(os.Stdout),
 		Ready:        false,
 		Content:      content,
@@ -133,8 +136,8 @@ func (e *EditorConfig) RefreshScreen() {
 // TODO(Ben): add "ok" flag to indiciate if the cursor attempted to move out of bounds.
 func (e *EditorConfig) RelativeMoveCursor(x, y int) {
 	if x < 0 {
-		e.AbsCx = max(e.AbsCx+x, 2)
-		e.RelCx = max(e.RelCx+x, 2)
+		e.AbsCx = max(e.AbsCx+x, OffsetX)
+		e.RelCx = max(e.RelCx+x, OffsetX)
 	} else {
 		e.AbsCx = min(e.AbsCx+x, e.Cols-1)
 		e.RelCx = min(e.RelCx+x, e.Cols-1)
